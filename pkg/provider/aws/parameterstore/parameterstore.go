@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -27,7 +28,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/tidwall/gjson"
 	corev1 "k8s.io/api/core/v1"
-	utilpointer "k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
@@ -50,6 +50,7 @@ type ParameterStore struct {
 	sess         *session.Session
 	client       PMInterface
 	referentAuth bool
+	config       *esv1beta1.ParameterStore
 }
 
 // PMInterface is a subset of the parameterstore api.
@@ -69,11 +70,12 @@ const (
 )
 
 // New constructs a ParameterStore Provider that is specific to a store.
-func New(sess *session.Session, cfg *aws.Config, referentAuth bool) (*ParameterStore, error) {
+func New(sess *session.Session, cfg *aws.Config, parameterStoreCfg *esv1beta1.ParameterStore, referentAuth bool) (*ParameterStore, error) {
 	return &ParameterStore{
 		sess:         sess,
 		referentAuth: referentAuth,
 		client:       ssm.New(sess, cfg),
+		config:       parameterStoreCfg,
 	}, nil
 }
 
@@ -97,7 +99,7 @@ func (pm *ParameterStore) getTagsByName(ctx aws.Context, ref *ssm.GetParameterOu
 func (pm *ParameterStore) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushSecretRemoteRef) error {
 	secretName := remoteRef.GetRemoteKey()
 	secretValue := ssm.GetParameterInput{
-		Name: &secretName,
+		Name: pm.prefixedPath(&secretName),
 	}
 	existing, err := pm.client.GetParameterWithContext(ctx, &secretValue)
 	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSGetParameter, err)
@@ -120,7 +122,7 @@ func (pm *ParameterStore) DeleteSecret(ctx context.Context, remoteRef esv1beta1.
 			return nil
 		}
 		deleteInput := &ssm.DeleteParameterInput{
-			Name: &secretName,
+			Name: pm.prefixedPath(&secretName),
 		}
 		_, err = pm.client.DeleteParameterWithContext(ctx, deleteInput)
 		metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSDeleteParameter, err)
@@ -140,14 +142,14 @@ func (pm *ParameterStore) PushSecret(ctx context.Context, secret *corev1.Secret,
 	secretName := data.GetRemoteKey()
 
 	secretRequest := ssm.PutParameterInput{
-		Name:      &secretName,
+		Name:      pm.prefixedPath(&secretName),
 		Value:     &stringValue,
 		Type:      &parameterType,
 		Overwrite: &overwrite,
 	}
 
 	secretValue := ssm.GetParameterInput{
-		Name: &secretName,
+		Name: pm.prefixedPath(&secretName),
 	}
 
 	existing, err := pm.client.GetParameterWithContext(ctx, &secretValue)
@@ -231,6 +233,7 @@ func (pm *ParameterStore) findByName(ctx context.Context, ref esv1beta1.External
 	if err != nil {
 		return nil, err
 	}
+	ref.Path = pm.prefixedPath(ref.Path)
 	if ref.Path == nil {
 		ref.Path = aws.String("/")
 	}
@@ -284,6 +287,7 @@ func (pm *ParameterStore) fallbackFindByName(ctx context.Context, ref esv1beta1.
 		return nil, err
 	}
 	pathFilter := make([]*ssm.ParameterStringFilter, 0)
+	ref.Path = pm.prefixedPath(ref.Path)
 	if ref.Path != nil {
 		pathFilter = append(pathFilter, &ssm.ParameterStringFilter{
 			Key:    aws.String("Path"),
@@ -326,12 +330,13 @@ func (pm *ParameterStore) findByTags(ctx context.Context, ref esv1beta1.External
 	filters := make([]*ssm.ParameterStringFilter, 0)
 	for k, v := range ref.Tags {
 		filters = append(filters, &ssm.ParameterStringFilter{
-			Key:    utilpointer.To(fmt.Sprintf("tag:%s", k)),
-			Values: []*string{utilpointer.To(v)},
-			Option: utilpointer.To("Equals"),
+			Key:    aws.String(fmt.Sprintf("tag:%s", k)),
+			Values: []*string{aws.String(v)},
+			Option: aws.String("Equals"),
 		})
 	}
 
+	ref.Path = pm.prefixedPath(ref.Path)
 	if ref.Path != nil {
 		filters = append(filters, &ssm.ParameterStringFilter{
 			Key:    aws.String("Path"),
@@ -370,7 +375,7 @@ func (pm *ParameterStore) findByTags(ctx context.Context, ref esv1beta1.External
 
 func (pm *ParameterStore) fetchAndSet(ctx context.Context, data map[string][]byte, name string) error {
 	out, err := pm.client.GetParameterWithContext(ctx, &ssm.GetParameterInput{
-		Name:           utilpointer.To(name),
+		Name:           aws.String(name),
 		WithDecryption: aws.Bool(true),
 	})
 	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSGetParameter, err)
@@ -424,7 +429,7 @@ func (pm *ParameterStore) GetSecret(ctx context.Context, ref esv1beta1.ExternalS
 func (pm *ParameterStore) getParameterTags(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (*ssm.GetParameterOutput, error) {
 	param := ssm.GetParameterOutput{
 		Parameter: &ssm.Parameter{
-			Name: parameterNameWithVersion(ref),
+			Name: pm.prefixedPath(parameterNameWithVersion(ref)),
 		},
 	}
 	tags, err := pm.getTagsByName(ctx, &param)
@@ -445,7 +450,7 @@ func (pm *ParameterStore) getParameterTags(ctx context.Context, ref esv1beta1.Ex
 
 func (pm *ParameterStore) getParameterValue(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (*ssm.GetParameterOutput, error) {
 	out, err := pm.client.GetParameterWithContext(ctx, &ssm.GetParameterInput{
-		Name:           parameterNameWithVersion(ref),
+		Name:           pm.prefixedPath(parameterNameWithVersion(ref)),
 		WithDecryption: aws.Bool(true),
 	})
 
@@ -483,6 +488,18 @@ func parameterNameWithVersion(ref esv1beta1.ExternalSecretDataRemoteRef) *string
 		name += ":" + ref.Version
 	}
 	return &name
+}
+
+func (pm *ParameterStore) prefixedPath(p *string) *string {
+	if pm.config == nil {
+		return p
+	}
+
+	if p == nil {
+		return aws.String(pm.config.PathPrefix)
+	}
+
+	return aws.String(path.Join(pm.config.PathPrefix, *p))
 }
 
 func (pm *ParameterStore) Close(_ context.Context) error {

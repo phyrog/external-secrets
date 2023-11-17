@@ -155,7 +155,7 @@ func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Cl
 		case esv1beta1.AWSServiceSecretsManager:
 			return secretsmanager.New(sess, cfg, prov.SecretsManager, true)
 		case esv1beta1.AWSServiceParameterStore:
-			return parameterstore.New(sess, cfg, true)
+			return parameterstore.New(sess, cfg, prov.ParameterStore, true)
 		}
 		return nil, fmt.Errorf(errUnknownProviderService, prov.Service)
 	}
@@ -194,7 +194,7 @@ func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Cl
 	case esv1beta1.AWSServiceSecretsManager:
 		return secretsmanager.New(sess, cfg, prov.SecretsManager, false)
 	case esv1beta1.AWSServiceParameterStore:
-		return parameterstore.New(sess, cfg, false)
+		return parameterstore.New(sess, cfg, prov.ParameterStore, false)
 	}
 	return nil, fmt.Errorf(errUnknownProviderService, prov.Service)
 }

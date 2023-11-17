@@ -83,6 +83,14 @@ type SecretsManager struct {
 	RecoveryWindowInDays int64 `json:"recoveryWindowInDays,omitempty"`
 }
 
+// ParameterStore defines how the provider behaves when interacting with AWS
+// ParameterStore.
+type ParameterStore struct {
+	// Specifies a path prefix to be prepended to all keys used with this SecretStore
+	// +optional
+	PathPrefix string `json:"pathPrefix,omitempty"`
+}
+
 type Tag struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -120,6 +128,10 @@ type AWSProvider struct {
 	// SecretsManager defines how the provider behaves when interacting with AWS SecretsManager
 	// +optional
 	SecretsManager *SecretsManager `json:"secretsManager,omitempty"`
+
+	// ParameterStore defines how the provider behaves when interacting with AWS ParameterStore
+	// +optional
+	ParameterStore *ParameterStore `json:"parameterStore,omitempty"`
 
 	// AWS STS assume role transitive session tags. Required when multiple rules are used with the provider
 	// +optional

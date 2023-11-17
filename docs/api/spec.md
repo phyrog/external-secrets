@@ -271,6 +271,20 @@ SecretsManager
 </tr>
 <tr>
 <td>
+<code>parameterStore</code></br>
+<em>
+<a href="#external-secrets.io/v1beta1.ParameterStore">
+ParameterStore
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ParameterStore defines how the provider behaves when interacting with AWS ParameterStore</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>transitiveTagKeys</code></br>
 <em>
 []*string
@@ -4669,6 +4683,38 @@ External Secrets meta/v1.SecretKeySelector
 </td>
 <td>
 <p>Fingerprint is the fingerprint of the API private key.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="external-secrets.io/v1beta1.ParameterStore">ParameterStore
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#external-secrets.io/v1beta1.AWSProvider">AWSProvider</a>)
+</p>
+<p>
+<p>ParameterStore defines how the provider behaves when interacting with AWS
+ParameterStore.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>pathPrefix</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Specifies a path prefix to be prepended to all keys used with this SecretStore</p>
 </td>
 </tr>
 </tbody>
